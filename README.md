@@ -3,17 +3,20 @@
 **Author** - Rasswanth S  
 **Email** - rasswanth@lyzr.ai
 
-A storyboard generator and screenplay writer using Lyzr-Automata. Using a small description of a scene, the app writes a screenplay and generates a storyboard for it using approprate LLM Models.
+A storyboard generator and screenplay writer. Using a small description of a scene, the app writes a screenplay and generates a storyboard for it using GPT-5 models.
 
-## Flow Diagram
-![Architecture Flow Diagram](<Flow Diagram.jpg>)
+## Architecture
+- Flask backend API for storyboard generation
+- React frontend for user interface
+- OpenAI GPT-5 integration for content creation
 
-## Steps
-1. Create a Text-to-Text Model (GPT-4) and Text-to-Image Model (DALLE 3) using OpenAIModel
-2. Create an Agent with instructions and persona to write screenplay
-3. Create a Task to make use of the Model and Agent to write the screenplay
-4. Create a Task to generate storyboard using DALLE 3 model
-5. Run tasks in LinearSyncPipeline
+## Setup
+1. Set up OpenAI API key in .env file
+2. Install Python dependencies: pip install -r requirements.txt
+3. Install frontend dependencies: cd frontend && npm install
+4. Run the Flask API: python app.py
+5. Run the frontend: cd frontend && npm run dev
+6. The API uses GPT-5 for screenplay generation and DALL-E 3 for storyboard image
 
 ## Links
 
