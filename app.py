@@ -22,10 +22,10 @@ def generate_storyboard():
     if not scene_description:
         return jsonify({'error': 'Scene description is required'}), 400
 
-    # Generate screenplay text using GPT-5
+    # Generate screenplay text using GPT-4o
     text_prompt = f"Use the scene description provided and write 4 shots for a movie in 200 words. Use your creativity. [IMPORTANT!] Setup the location and characters in a detailed manner. Scene description: {scene_description}"
     text_response = openai.chat.completions.create(
-        model="gpt-5",
+        model="gpt-4o",
         messages=[{"role": "user", "content": text_prompt}],
         max_tokens=1500,
         temperature=0.5
