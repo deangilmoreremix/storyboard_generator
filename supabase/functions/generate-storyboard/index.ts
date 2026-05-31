@@ -13,7 +13,7 @@ const openai = new OpenAI({
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("", {
+    return new Response("ok", {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "authorization,content-type",
@@ -30,25 +30,47 @@ serve(async (req) => {
     });
   }
 
-  const { scene_description, stream = false } = await req.json();
-
   try {
-    let response;
+    // Validate user
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      authHeader.replace("Bearer ", ""),
+    );
+    
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Invalid authentication token" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const { scene_description, reasoning_effort, stream = false, enable_web_search, enable_image_generation } = await req.json();
+
+    if (!scene_description) {
+      return new Response(JSON.stringify({ error: "Missing scene_description" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Build tools array
+    const tools: any[] = [];
+    if (enable_image_generation) {
+      tools.push({ type: "image_generation" });
+    }
+    if (enable_web_search) {
+      tools.push({ type: "web_search_preview" });
+    }
+
+    let imageUrl: string | null = null;
+    let outputText = "";
 
     if (stream) {
-      response = await openai.responses.create({
+      const response = await openai.responses.create({
         model: "gpt-5",
         stream: true,
-        tools: [
-          { type: "image_generation" },
-          { type: "web_search_preview" },
-        ],
-        input: [
-          {
-            role: "user",
-            content: `Create a detailed storyboard for this scene: "${scene_description}". Include visual descriptions for each panel.`,
-          },
-        ],
+        ...(tools.length > 0 && { tools }),
+        input: scene_description,
+        ...(reasoning_effort && { reasoning_effort }),
       });
 
       const encoder = new TextEncoder();
@@ -66,25 +88,57 @@ serve(async (req) => {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
           "Connection": "keep-alive",
+          "Access-Control-Allow-Origin": "*",
         },
       });
     }
 
-    response = await openai.responses.create({
+    const response = await openai.responses.create({
       model: "gpt-5",
-      tools: [
-        { type: "image_generation" },
-        { type: "web_search_preview" },
-      ],
-      input: [
-        {
-          role: "user",
-          content: `Create a detailed storyboard for this scene: "${scene_description}". Include visual descriptions for each panel.`,
-        },
-      ],
+      ...(tools.length > 0 && { tools }),
+      input: scene_description,
+      ...(reasoning_effort && { reasoning_effort }),
     });
 
-    return new Response(JSON.stringify(response), {
+    // Extract output_text
+    outputText = response.output_text || "";
+
+    // Extract image URL if generated
+    if (response.output) {
+      for (const item of response.output) {
+        if (item.type === "image_generation_call" && item.result) {
+          imageUrl = item.result;
+          break;
+        }
+      }
+    }
+
+    // Save to database
+    const { data: storyboard, error: insertError } = await supabase
+      .from("storyboards")
+      .insert({
+        user_id: user.id,
+        scene_description,
+        screenplay: outputText.substring(0, 500), // Store first 500 chars as screenplay
+        image_url: imageUrl,
+        panels: response.output?.filter((o: any) => o.type !== "image_generation_call") || [],
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      return new Response(JSON.stringify({ error: insertError.message }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({
+      id: storyboard.id,
+      output_text: outputText,
+      image_url: imageUrl,
+      panels: storyboard.panels,
+    }), {
       headers: { "Content-Type": "application/json" },
       status: 200,
     });
