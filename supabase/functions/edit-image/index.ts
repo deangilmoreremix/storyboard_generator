@@ -1,5 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import OpenAI from "https://esm.sh/openai@4.40.0";
+
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL") ?? "",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+);
 
 const openai = new OpenAI({
   apiKey: Deno.env.get("OPENAI_API_KEY"),
@@ -16,7 +22,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("", {
+    return new Response("ok", {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "authorization,content-type",
@@ -25,31 +31,60 @@ serve(async (req) => {
     });
   }
 
-  try {
-    const formData = await req.formData();
-    const image = formData.get("image") as File;
-    const prompt = formData.get("prompt") as string;
-    const mask = formData.get("mask") as File | null;
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
+    return new Response(JSON.stringify({ error: "Missing authorization header" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
-    if (!image) {
-      return new Response(JSON.stringify({ error: "Missing image file" }), {
+  try {
+    // Validate user
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      authHeader.replace("Bearer ", ""),
+    );
+    
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Invalid authentication token" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const formData = await req.formData();
+    const imageFile = formData.get("image") as File;
+    const prompt = formData.get("prompt") as string;
+    const maskFile = formData.get("mask") as File | null;
+    const size = formData.get("size") as string || "1024x1024";
+
+    if (!imageFile || !prompt) {
+      return new Response(JSON.stringify({ error: "Missing image or prompt" }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    const imageBase64 = arrayBufferToBase64(await image.arrayBuffer());
-    const maskBase64 = mask ? arrayBufferToBase64(await mask.arrayBuffer()) : null;
+    const imageBase64 = arrayBufferToBase64(await imageFile.arrayBuffer());
+    const maskBase64 = maskFile ? arrayBufferToBase64(await maskFile.arrayBuffer()) : null;
+
+    // Convert to data URL format OpenAI expects
+    const imageDataUrl = `data:image/png;base64,${imageBase64}`;
+    const maskDataUrl = maskBase64 ? `data:image/png;base64,${maskBase64}` : null;
 
     const result = await openai.images.edit({
-      image: imageBase64,
+      image: imageDataUrl,
       prompt,
-      mask: maskBase64 ?? undefined,
-      size: "1024x1024",
+      mask: maskDataUrl ?? undefined,
+      size: size as any,
+      n: 1,
     });
 
-    return new Response(JSON.stringify({ url: result.data?.[0]?.url }), {
+    const imageUrls = result.data?.map((img: any) => img.url).filter(Boolean) || [];
+
+    return new Response(JSON.stringify({ imageUrls }), {
       headers: { "Content-Type": "application/json" },
+      status: 200,
     });
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {

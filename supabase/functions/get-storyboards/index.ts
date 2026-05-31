@@ -3,12 +3,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL") ?? "",
-  Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
 );
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("", {
+    return new Response("ok", {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "authorization,content-type",
@@ -17,16 +17,37 @@ serve(async (req) => {
     });
   }
 
-  const url = new URL(req.url);
-  const page = parseInt(url.searchParams.get("page") || "1");
-  const limit = parseInt(url.searchParams.get("limit") || "20");
-  const from = (page - 1) * limit;
-  const to = from + limit - 1;
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
+    return new Response(JSON.stringify({ error: "Missing authorization header" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   try {
+    // Validate user
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      authHeader.replace("Bearer ", ""),
+    );
+    
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Invalid authentication token" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const url = new URL(req.url);
+    const page = parseInt(url.searchParams.get("page") || "1");
+    const limit = parseInt(url.searchParams.get("limit") || "20");
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
     const { data, error, count } = await supabase
       .from("storyboards")
       .select("*", { count: "exact" })
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .range(from, to);
 
@@ -42,6 +63,7 @@ serve(async (req) => {
       },
     }), {
       headers: { "Content-Type": "application/json" },
+      status: 200,
     });
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
