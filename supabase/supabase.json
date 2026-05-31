@@ -1,0 +1,31 @@
+{
+  "project_id": "",
+  "api": {
+    "proxy": 443,
+    "realtime": {
+      "enabled": true
+    },
+    "storage": {
+      "enabled": true
+    }
+  },
+  "db": {
+    "port": 5432,
+    "shadow_port": 5432
+  },
+  "studio": {
+    "port": 54321
+  },
+  "inbucket": {
+    "port": 54322
+  },
+  "auth": {
+    "enabled": true
+  },
+  "functions": {
+    "verify_jwt": true
+  },
+  "edge_runtime": {
+    "policy": "http"
+  }
+}
